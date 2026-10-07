@@ -1,6 +1,9 @@
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Logs;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +18,13 @@ builder.Services.AddOpenTelemetry()
     .WithTracing(tracing => tracing
         .AddAspNetCoreInstrumentation()
         .AddSource(BookShopTelemetry.SourceName)
+        .AddConsoleExporter())
+    .WithMetrics(metrics => metrics
+        .AddAspNetCoreInstrumentation()
+        .AddMeter(BookShopMetrics.MeterName)
+        .AddConsoleExporter((_, metricReaderOptions) =>
+            metricReaderOptions.PeriodicExportingMetricReaderOptions.ExportIntervalMilliseconds = 5000))
+    .WithLogging(logging => logging
         .AddConsoleExporter());
 
 var app = builder.Build();
@@ -26,7 +36,7 @@ app.MapGet("/books", (BookCatalog catalog) => Results.Ok(catalog.All()));
 app.MapGet("/books/{id:int}", (int id, BookCatalog catalog) =>
     catalog.Find(id) is { } book ? Results.Ok(book) : Results.NotFound());
 
-app.MapPost("/orders", (CreateOrderRequest request, BookCatalog catalog, OrderStore orders) =>
+app.MapPost("/orders", (CreateOrderRequest request, BookCatalog catalog, OrderStore orders, ILogger<Program> logger) =>
 {
     using var activity = BookShopTelemetry.ActivitySource.StartActivity("orders.create");
     activity?.SetTag("bookshop.order.quantity", request.Quantity);
@@ -34,6 +44,8 @@ app.MapPost("/orders", (CreateOrderRequest request, BookCatalog catalog, OrderSt
     if (request.Quantity <= 0)
     {
         activity?.SetTag("bookshop.order.result", "rejected_invalid_quantity");
+        BookShopMetrics.RecordOrderAttempt("rejected_invalid_quantity");
+        logger.LogWarning("Order rejected because quantity must be positive. Quantity: {Quantity}", request.Quantity);
         return Results.ValidationProblem(new Dictionary<string, string[]>
         {
             [nameof(request.Quantity)] = ["Quantity must be greater than zero."]
@@ -44,12 +56,19 @@ app.MapPost("/orders", (CreateOrderRequest request, BookCatalog catalog, OrderSt
     if (catalog.Find(request.BookId) is not { } book)
     {
         activity?.SetTag("bookshop.order.result", "rejected_book_not_found");
+        BookShopMetrics.RecordOrderAttempt("rejected_book_not_found");
+        logger.LogWarning("Order rejected because book {BookId} was not found", request.BookId);
         return Results.NotFound(new { message = $"Book {request.BookId} was not found." });
     }
 
     var order = orders.Create(book, request.Quantity);
     activity?.SetTag("bookshop.order.result", "created");
     activity?.AddEvent(new ActivityEvent("order.created"));
+    BookShopMetrics.RecordOrderAttempt("created");
+    BookShopMetrics.RecordOrderValue((double)order.Total);
+    logger.LogInformation(
+        "Order {OrderId} created for book {BookId}. Quantity: {Quantity}; total: {OrderTotal}",
+        order.Id, order.BookId, order.Quantity, order.Total);
     return Results.Created($"/orders/{order.Id}", order);
 });
 
@@ -72,6 +91,21 @@ public static class BookShopTelemetry
 {
     public const string SourceName = "BookShop.Api";
     public static readonly ActivitySource ActivitySource = new(SourceName, "1.0.0");
+}
+
+public static class BookShopMetrics
+{
+    public const string MeterName = "BookShop.Api";
+    private static readonly Meter Meter = new(MeterName, "1.0.0");
+    private static readonly Counter<long> OrderAttempts = Meter.CreateCounter<long>(
+        "bookshop.orders.attempts", "{attempt}", "Number of order attempts grouped by outcome.");
+    private static readonly Histogram<double> OrderValues = Meter.CreateHistogram<double>(
+        "bookshop.order.value", "unit", "Value of successfully created orders in demo price units.");
+
+    public static void RecordOrderAttempt(string result) =>
+        OrderAttempts.Add(1, new KeyValuePair<string, object?>("bookshop.order.result", result));
+
+    public static void RecordOrderValue(double value) => OrderValues.Record(value);
 }
 
 public sealed record Book(int Id, string Title, decimal Price);
