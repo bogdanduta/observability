@@ -4,28 +4,41 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Logs;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<BookCatalog>();
 builder.Services.AddSingleton<OrderStore>();
 
-// Lab 2: collect incoming ASP.NET Core request traces and print them locally.
-builder.Services.AddOpenTelemetry()
-    .ConfigureResource(resource => resource.AddService(
-        serviceName: "bookshop-api",
-        serviceVersion: "1.0.0"))
-    .WithTracing(tracing => tracing
-        .AddAspNetCoreInstrumentation()
-        .AddSource(BookShopTelemetry.SourceName)
-        .AddConsoleExporter())
-    .WithMetrics(metrics => metrics
-        .AddAspNetCoreInstrumentation()
-        .AddMeter(BookShopMetrics.MeterName)
-        .AddConsoleExporter((_, metricReaderOptions) =>
-            metricReaderOptions.PeriodicExportingMetricReaderOptions.ExportIntervalMilliseconds = 5000))
-    .WithLogging(logging => logging
-        .AddConsoleExporter());
+// Use Azure Monitor when a connection string is supplied; otherwise keep the
+// local console exporters so Labs 2–4 remain runnable without Azure resources.
+if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+{
+    builder.Services.AddOpenTelemetry().UseAzureMonitor();
+    builder.Services.ConfigureOpenTelemetryTracerProvider((_, tracing) =>
+        tracing.AddSource(BookShopTelemetry.SourceName));
+    builder.Services.ConfigureOpenTelemetryMeterProvider((_, metrics) =>
+        metrics.AddMeter(BookShopMetrics.MeterName));
+}
+else
+{
+    builder.Services.AddOpenTelemetry()
+        .ConfigureResource(resource => resource.AddService(
+            serviceName: "bookshop-api",
+            serviceVersion: "1.0.0"))
+        .WithTracing(tracing => tracing
+            .AddAspNetCoreInstrumentation()
+            .AddSource(BookShopTelemetry.SourceName)
+            .AddConsoleExporter())
+        .WithMetrics(metrics => metrics
+            .AddAspNetCoreInstrumentation()
+            .AddMeter(BookShopMetrics.MeterName)
+            .AddConsoleExporter((_, metricReaderOptions) =>
+                metricReaderOptions.PeriodicExportingMetricReaderOptions.ExportIntervalMilliseconds = 5000))
+        .WithLogging(logging => logging
+            .AddConsoleExporter());
+}
 
 var app = builder.Build();
 
