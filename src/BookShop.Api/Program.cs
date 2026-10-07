@@ -1,5 +1,6 @@
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using System.Diagnostics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,6 +14,7 @@ builder.Services.AddOpenTelemetry()
         serviceVersion: "1.0.0"))
     .WithTracing(tracing => tracing
         .AddAspNetCoreInstrumentation()
+        .AddSource(BookShopTelemetry.SourceName)
         .AddConsoleExporter());
 
 var app = builder.Build();
@@ -26,20 +28,28 @@ app.MapGet("/books/{id:int}", (int id, BookCatalog catalog) =>
 
 app.MapPost("/orders", (CreateOrderRequest request, BookCatalog catalog, OrderStore orders) =>
 {
+    using var activity = BookShopTelemetry.ActivitySource.StartActivity("orders.create");
+    activity?.SetTag("bookshop.order.quantity", request.Quantity);
+
     if (request.Quantity <= 0)
     {
+        activity?.SetTag("bookshop.order.result", "rejected_invalid_quantity");
         return Results.ValidationProblem(new Dictionary<string, string[]>
         {
             [nameof(request.Quantity)] = ["Quantity must be greater than zero."]
         });
     }
 
+    activity?.SetTag("bookshop.book.id", request.BookId);
     if (catalog.Find(request.BookId) is not { } book)
     {
+        activity?.SetTag("bookshop.order.result", "rejected_book_not_found");
         return Results.NotFound(new { message = $"Book {request.BookId} was not found." });
     }
 
     var order = orders.Create(book, request.Quantity);
+    activity?.SetTag("bookshop.order.result", "created");
+    activity?.AddEvent(new ActivityEvent("order.created"));
     return Results.Created($"/orders/{order.Id}", order);
 });
 
@@ -57,6 +67,12 @@ app.MapGet("/lab/slow", async (CancellationToken cancellationToken) =>
 });
 
 app.Run();
+
+public static class BookShopTelemetry
+{
+    public const string SourceName = "BookShop.Api";
+    public static readonly ActivitySource ActivitySource = new(SourceName, "1.0.0");
+}
 
 public sealed record Book(int Id, string Title, decimal Price);
 public sealed record CreateOrderRequest(int BookId, int Quantity);
