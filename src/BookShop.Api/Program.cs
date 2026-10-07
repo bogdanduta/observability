@@ -1,7 +1,19 @@
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<BookCatalog>();
 builder.Services.AddSingleton<OrderStore>();
+
+// Lab 2: collect incoming ASP.NET Core request traces and print them locally.
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService(
+        serviceName: "bookshop-api",
+        serviceVersion: "1.0.0"))
+    .WithTracing(tracing => tracing
+        .AddAspNetCoreInstrumentation()
+        .AddConsoleExporter());
 
 var app = builder.Build();
 
