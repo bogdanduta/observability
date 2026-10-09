@@ -10,6 +10,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<BookCatalog>();
 builder.Services.AddSingleton<OrderStore>();
+builder.Services.AddHttpClient<InventoryClient>(client =>
+{
+    var baseUrl = builder.Configuration["INVENTORY_BASE_URL"] ?? "http://localhost:5081";
+    client.BaseAddress = new Uri(baseUrl);
+});
 
 // Use Azure Monitor when a connection string is supplied; otherwise keep the
 // local console exporters so Labs 2–4 remain runnable without Azure resources.
@@ -25,10 +30,11 @@ else
 {
     builder.Services.AddOpenTelemetry()
         .ConfigureResource(resource => resource.AddService(
-            serviceName: "bookshop-api",
+            serviceName: builder.Configuration["OTEL_SERVICE_NAME"] ?? "bookshop-api",
             serviceVersion: "1.0.0"))
         .WithTracing(tracing => tracing
             .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
             .AddSource(BookShopTelemetry.SourceName)
             .AddConsoleExporter())
         .WithMetrics(metrics => metrics
@@ -49,7 +55,7 @@ app.MapGet("/books", (BookCatalog catalog) => Results.Ok(catalog.All()));
 app.MapGet("/books/{id:int}", (int id, BookCatalog catalog) =>
     catalog.Find(id) is { } book ? Results.Ok(book) : Results.NotFound());
 
-app.MapPost("/orders", (CreateOrderRequest request, BookCatalog catalog, OrderStore orders, ILogger<Program> logger) =>
+app.MapPost("/orders", async (CreateOrderRequest request, BookCatalog catalog, OrderStore orders, InventoryClient inventory, ILogger<Program> logger, CancellationToken cancellationToken) =>
 {
     using var activity = BookShopTelemetry.ActivitySource.StartActivity("orders.create");
     activity?.SetTag("bookshop.order.quantity", request.Quantity);
@@ -72,6 +78,26 @@ app.MapPost("/orders", (CreateOrderRequest request, BookCatalog catalog, OrderSt
         BookShopMetrics.RecordOrderAttempt("rejected_book_not_found");
         logger.LogWarning("Order rejected because book {BookId} was not found", request.BookId);
         return Results.NotFound(new { message = $"Book {request.BookId} was not found." });
+    }
+
+    bool available;
+    try
+    {
+        available = await inventory.IsAvailableAsync(request.BookId, request.Quantity, cancellationToken);
+    }
+    catch (HttpRequestException exception)
+    {
+        activity?.SetStatus(ActivityStatusCode.Error, "Inventory service unavailable");
+        logger.LogError(exception, "Inventory check failed for book {BookId}", request.BookId);
+        return Results.Problem("Inventory service is unavailable.", statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    if (!available)
+    {
+        activity?.SetTag("bookshop.order.result", "rejected_out_of_stock");
+        BookShopMetrics.RecordOrderAttempt("rejected_out_of_stock");
+        logger.LogWarning("Order rejected because book {BookId} has insufficient stock", request.BookId);
+        return Results.Conflict(new { message = "Insufficient stock." });
     }
 
     var order = orders.Create(book, request.Quantity);
@@ -104,6 +130,21 @@ public static class BookShopTelemetry
 {
     public const string SourceName = "BookShop.Api";
     public static readonly ActivitySource ActivitySource = new(SourceName, "1.0.0");
+}
+
+public sealed class InventoryClient(HttpClient httpClient)
+{
+    public async Task<bool> IsAvailableAsync(int bookId, int quantity, CancellationToken cancellationToken)
+    {
+        using var response = await httpClient.GetAsync($"/inventory/{bookId}?quantity={quantity}", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return false;
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<InventoryCheckResponse>(cancellationToken);
+        return result?.Available == true;
+    }
+
+    private sealed record InventoryCheckResponse(bool Available);
 }
 
 public static class BookShopMetrics
