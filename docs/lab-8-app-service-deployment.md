@@ -4,6 +4,18 @@
 
 Deploy BookShop and Inventory as two .NET 10 web apps. Follow an order trace across the public HTTP boundary and verify that both services send telemetry to the Application Insights resource from Lab 5.
 
+### Deployment checkpoint — 9 October 2026
+
+The resources have been created in `rg-observability-labs`:
+
+- Linux Free F1 plan: `asp-observability-bd` in West Europe.
+- BookShop: `https://bookshop-bd.azurewebsites.net`.
+- Inventory: `https://inventory-bd.azurewebsites.net`.
+- Both apps use the Linux .NET 10 stack, enforce HTTPS, and have successful App Service deployment status.
+- Both apps have their `OTEL_SERVICE_NAME` and `APPLICATIONINSIGHTS_CONNECTION_STRING` app settings; BookShop also has `INVENTORY_BASE_URL=https://inventory-bd.azurewebsites.net`. The connection string is intentionally not recorded here.
+
+The deployment tool's environment could not reach the public app host through its configured proxy, so the HTTP health and order requests still need to be run from your browser or local PowerShell. That is the next action in section 5.
+
 This lab uses one Linux **Free F1** App Service Plan for both web apps. F1 has no App Service compute charge, no SLA, and per-app limits including 60 CPU minutes per day and 1 GB storage. It is suitable for a short learning exercise, not production. Apps on Free can be unloaded and cold-start, so the first cross-service request may be slow. Application Insights ingestion and retention are separate and may still incur charges. See [App Service Linux pricing](https://azure.microsoft.com/pricing/details/app-service/linux/) and review your existing Application Insights cost settings.
 
 These demo APIs have no authentication and will be publicly reachable. Use only synthetic data, do not add secrets or real customer information, and delete the apps after the lab. If you want to keep them online, add an access restriction or authentication before sharing the URL.
@@ -71,16 +83,16 @@ az webapp create `
   --name $bookShopApp `
   --resource-group $resourceGroup `
   --plan $planName `
-  --runtime "DOTNETCORE:10.0" `
-  --os-type linux
+  --runtime "DOTNETCORE:10.0"
 
 az webapp create `
   --name $inventoryApp `
   --resource-group $resourceGroup `
   --plan $planName `
-  --runtime "DOTNETCORE:10.0" `
-  --os-type linux
+  --runtime "DOTNETCORE:10.0"
 ```
+
+The Linux plan determines the apps' operating system. The current CLI's `az webapp create` command does not take an `--os-type` flag; the runtime setting configures `DOTNETCORE|10.0` on the Linux app.
 
 Microsoft's current App Service CLI examples use the `DOTNETCORE:10.0` runtime identifier; the authenticated CLI runtime list reports it active for Linux. `az webapp deploy` deploys the ZIP artifacts. If the F1 tier is unavailable in West Europe or for this subscription, stop and inspect the available tiers and quotas before selecting any paid plan. [App Service .NET quickstart](https://learn.microsoft.com/en-us/azure/app-service/quickstart-dotnetcore) · [Azure CLI `az webapp`](https://learn.microsoft.com/en-us/cli/azure/webapp?view=azure-cli-latest)
 
@@ -91,7 +103,7 @@ Use the App Service portal for each app: **Settings > Environment variables** (o
 | App | Setting | Value |
 | --- | --- | --- |
 | BookShop | `OTEL_SERVICE_NAME` | `bookshop-api` |
-| BookShop | `INVENTORY_BASE_URL` | `https://<inventory-app-name>.azurewebsites.net` |
+| BookShop | `INVENTORY_BASE_URL` | `https://inventory-bd.azurewebsites.net` |
 | BookShop | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Connection string from the Lab 5 Application Insights resource |
 | Inventory | `OTEL_SERVICE_NAME` | `inventory-api` |
 | Inventory | `APPLICATIONINSIGHTS_CONNECTION_STRING` | The same Lab 5 Application Insights connection string |
