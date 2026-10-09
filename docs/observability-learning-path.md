@@ -104,7 +104,7 @@ sequenceDiagram
 | 5 | Azure Monitor / Application Insights ingestion | App Insights + Log Analytics | `feat: export telemetry to azure monitor` |
 | 6 | KQL investigations and trace correlation | Existing lab workspace | `docs: add azure monitor investigation queries` |
 | 7 | [Inventory service and distributed tracing](lab-7-distributed-tracing.md) | Local only | `feat: trace bookshop across services` |
-| 8 | Deploy to Azure App Service and configure telemetry | App Service + existing monitoring resources | `feat: deploy bookshop to azure` |
+| 8 | [Deploy both APIs to Azure App Service](lab-8-app-service-deployment.md) and configure telemetry | App Service + existing monitoring resources | `docs: add app service deployment lab` |
 | 9 | Alerting, dashboard, sampling, cost, and cleanup | Existing lab resources | `docs: add alerting and cleanup runbook` |
 
 ## Repository conventions
