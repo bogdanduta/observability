@@ -6,6 +6,30 @@ Use Kusto Query Language (KQL) in Application Insights / Log Analytics to answer
 
 In a workspace-based Application Insights resource, common OpenTelemetry signals are stored in tables such as `AppRequests`, `AppDependencies`, `AppTraces`, `AppExceptions`, and `AppMetrics`. The exact columns are visible in the Logs table schema and in Microsoft's table references. [OpenTelemetry table mapping](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-filter) · [AppRequests schema](https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/apprequests) · [AppDependencies schema](https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/appdependencies) · [AppMetrics schema](https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/appmetrics)
 
+## Choose the Log Analytics workspace scope
+
+Azure provides two KQL experiences for Application Insights data. The screenshot in the Lab 5 portal flow opens **Logs** on the Application Insights resource, which preserves the classic Application Insights table names: `requests`, `dependencies`, `traces`, `exceptions`, and `customMetrics`. The queries in this lab use the workspace table names: `AppRequests`, `AppDependencies`, `AppTraces`, `AppExceptions`, and `AppMetrics`.
+
+To follow the lab queries, switch to the linked Log Analytics workspace:
+
+1. Open the Application Insights resource and select **Overview**.
+2. Find **Workspace** and select its blue linked workspace name. This opens the associated Log Analytics workspace.
+3. In the workspace, select **Logs**. Confirm the query scope is the workspace (not the Application Insights resource), then expand **Log Management** in the Tables pane.
+4. Look for `AppRequests`, `AppDependencies`, `AppTraces`, `AppExceptions`, and `AppMetrics`.
+
+Microsoft documents that selecting the Application Insights app as the scope opens the backward-compatible classic query experience; selecting its linked workspace exposes the workspace-based schema. [Log query scope](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/scope) · [Create workspace-based Application Insights resources](https://learn.microsoft.com/en-us/azure/azure-monitor/app/create-workspace-resource?tabs=portal)
+
+If you want to stay in the Application Insights Logs screen shown in the screenshot, use its classic schema instead. For example, the Lab 6 request-discovery query becomes:
+
+```kusto
+requests
+| where timestamp > ago(1h)
+| project timestamp, name, url, success, resultCode, duration, operation_Id
+| order by timestamp desc
+```
+
+The rest of this guide uses workspace table names and columns so the queries align with Log Analytics and the underlying workspace data.
+
 ```mermaid
 flowchart TD
     Symptom[Symptom: orders failing or slow]
@@ -25,11 +49,10 @@ flowchart TD
 
 ## Open Logs and set a time range
 
-1. Open your Application Insights resource in the Azure portal.
-2. Select **Logs**. If the Logs blade asks for a scope, select this Application Insights resource or its linked workspace.
-3. Set the time range to include the traffic you generated in Lab 5 (for example, **Last 1 hour**).
-4. Expand **Log Management** and inspect the schemas of `AppRequests`, `AppDependencies`, `AppTraces`, `AppExceptions`, and `AppMetrics`.
-5. Run the queries below one at a time. The table schema and IntelliSense in the query editor are authoritative for the resource you selected.
+1. Open the linked Log Analytics workspace using the steps above.
+2. Select **Logs** and set the time range to include the traffic you generated in Lab 5 (for example, **Last 1 hour**).
+3. Expand **Log Management** and inspect the schemas of `AppRequests`, `AppDependencies`, `AppTraces`, `AppExceptions`, and `AppMetrics`.
+4. Run the queries below one at a time. The table schema and IntelliSense in the query editor are authoritative for the workspace you selected.
 
 Logs can take several minutes to appear after ingestion. Start with a short time window while learning; narrower time filters make investigations faster and easier to reason about.
 
