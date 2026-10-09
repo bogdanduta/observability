@@ -81,6 +81,32 @@ Open the Application Insights resource and check:
 
 Ingestion can take several minutes to appear in stored views. Live Metrics is intended to provide a near-real-time view, while stored telemetry powers historical search and queries.
 
+## What the `traceparent` HTTP header looks like
+
+When an instrumented service makes an outgoing HTTP call, OpenTelemetry's W3C Trace Context propagator can add a `traceparent` header. For example:
+
+```http
+GET /inventory/1?quantity=2 HTTP/1.1
+Host: inventory-bd.azurewebsites.net
+traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+```
+
+The value has four dash-separated fields:
+
+```text
+version-trace-id-parent-id-trace-flags
+00     - 4bf92f3577b34da6a3ce929d0e0e4736 - 00f067aa0ba902b7 - 01
+```
+
+- `00` is the current header format version.
+- `4bf92f3577b34da6a3ce929d0e0e4736` is the 16-byte trace ID. It identifies the end-to-end trace and stays the same as the request crosses services.
+- `00f067aa0ba902b7` is the 8-byte parent ID. It identifies the span that made this HTTP call. The receiving service uses it to connect its server span to the caller's HTTP client span.
+- `01` contains trace flags; its low bit indicates that this example is sampled. `00` would indicate that the caller did not mark the trace as sampled.
+
+The IDs above are illustrative; instrumentation generates fresh IDs for real requests. A later outgoing call keeps the trace ID but uses that hop's client span ID as the new `parent-id`. An optional `tracestate` header can carry vendor-specific context.
+
+At this point in the learning path, Lab 5's BookShop has no downstream HTTP call, so it won't send this header to Inventory yet. Lab 7 adds `Inventory.Api` and the outgoing `HttpClient` call; there you can see the propagated context represented as correlated spans in Application Insights. The header format is standardized by [W3C Trace Context](https://www.w3.org/TR/trace-context/#traceparent-header-field-values).
+
 ## What to notice
 
 - A request trace includes the automatic HTTP server span and the custom `orders.create` span.
